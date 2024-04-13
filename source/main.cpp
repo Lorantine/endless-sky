@@ -265,7 +265,7 @@ void GameLoop(PlayerInfo &player, TaskQueue &queue, const Conversation &conversa
 	int frameRate = 60;
 	FrameTimer timer(frameRate);
 	bool isPaused = false;
-	bool isFastForward = false;
+	double gameSpeed = 1.0;
 
 	// If fast forwarding, keep track of whether the current frame should be drawn.
 	int skipFrame = 0;
@@ -281,7 +281,7 @@ void GameLoop(PlayerInfo &player, TaskQueue &queue, const Conversation &conversa
 	const bool isHeadless = (testContext.CurrentTest() && !debugMode);
 
 	auto ProcessEvents = [&menuPanels, &gamePanels, &player, &cursorTime, &toggleTimeout, &debugMode, &isPaused,
-			&isFastForward]
+		&gameSpeed]
 	{
 		SDL_Event event;
 		while(SDL_PollEvent(&event))
@@ -325,14 +325,23 @@ void GameLoop(PlayerInfo &player, TaskQueue &queue, const Conversation &conversa
 					&& (Command(event.key.keysym.sym).Has(Command::FASTFORWARD))
 					&& !Command(SDLK_CAPSLOCK).Has(Command::FASTFORWARD))
 			{
-				isFastForward = !isFastForward;
+				// If speed is anything but x3, set it to x3. Otherwise set it to x1.
+				if (gameSpeed != 3)
+					gameSpeed = 3;
+				else
+					gameSpeed = 1;
 			}
 		}
 
 		// Special case: If fastforward is on capslock, update on mod state and not
 		// on keypress.
-		if(Command(SDLK_CAPSLOCK).Has(Command::FASTFORWARD))
-			isFastForward = SDL_GetModState() & KMOD_CAPS;
+		if (Command(SDLK_CAPSLOCK).Has(Command::FASTFORWARD))
+		{
+			if (SDL_GetModState() & KMOD_CAPS)
+				gameSpeed = 3;
+			else
+				gameSpeed = 1;
+		}
 	};
 
 	// Game loop when running the game normally.
@@ -364,8 +373,8 @@ void GameLoop(PlayerInfo &player, TaskQueue &queue, const Conversation &conversa
 			// (for example when the boarding dialog shows up or when the player lands). The player
 			// can switch fast-forward on again when flight is resumed.
 			bool allowFastForward = !gamePanels.IsEmpty() && gamePanels.Top()->AllowsFastForward();
-			if(Preferences::Has("Interrupt fast-forward") && !inFlight && isFastForward && !allowFastForward)
-				isFastForward = false;
+			if (Preferences::Has("Interrupt fast-forward") && !inFlight && gameSpeed != 1 && !allowFastForward)
+				gameSpeed = 1;
 
 			// Tell all the panels to step forward, then draw them.
 			((!isPaused && menuPanels.IsEmpty()) ? gamePanels : menuPanels).StepAll();
@@ -388,9 +397,9 @@ void GameLoop(PlayerInfo &player, TaskQueue &queue, const Conversation &conversa
 					timer.SetFrameRate(frameRate);
 				}
 
-				if(isFastForward && inFlight)
+				if (inFlight && gameSpeed > 1)
 				{
-					skipFrame = (skipFrame + 1) % 3;
+					skipFrame = (skipFrame + 1) % (int)gameSpeed;
 					if(skipFrame)
 						continue;
 				}
@@ -401,7 +410,7 @@ void GameLoop(PlayerInfo &player, TaskQueue &queue, const Conversation &conversa
 			// Events in this frame may have cleared out the menu, in which case
 			// we should draw the game panels instead:
 			(menuPanels.IsEmpty() ? gamePanels : menuPanels).DrawAll();
-			if(isFastForward)
+			if (gameSpeed > 1)
 				SpriteShader::Draw(SpriteSet::Get("ui/fast forward"), Screen::TopLeft() + Point(10., 10.));
 
 			GameWindow::Step();
